@@ -408,6 +408,10 @@ func (w *Wallet) Open(passphrase string) error {
 	return nil
 }
 
+func (w *Wallet) SecureRandomNumber(account accounts.Account, identifier []byte) ([]byte, error) {
+	return nil, errors.New("not supported yet")
+}
+
 // Close stops and closes the wallet, freeing any resources.
 func (w *Wallet) Close() error {
 	// Ensure the wallet was opened

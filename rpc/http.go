@@ -174,6 +174,7 @@ func (hc *httpConn) doRequest(ctx context.Context, msg interface{}) (io.ReadClos
 		return nil, err
 	}
 	req.ContentLength = int64(len(body))
+	req.GetBody = func() (io.ReadCloser, error) { return ioutil.NopCloser(bytes.NewReader(body)), nil }
 
 	// set headers
 	hc.mu.Lock()
@@ -248,6 +249,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		ctx = context.WithValue(ctx, "Origin", origin)
+	}
+
+	if xForward := r.Header.Get("X-Forwarded-For"); xForward != "" {
+		ctx = context.WithValue(ctx, "X-Forwarded-For", xForward)
 	}
 
 	w.Header().Set("content-type", contentType)

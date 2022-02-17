@@ -19,6 +19,7 @@ package usbwallet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -522,6 +523,10 @@ func (w *wallet) SelfDerive(bases []accounts.DerivationPath, chain ethereum.Chai
 // supported for hardware wallets, so this method will always return an error.
 func (w *wallet) signHash(account accounts.Account, hash []byte) ([]byte, error) {
 	return nil, accounts.ErrNotSupported
+}
+
+func (w *wallet) SecureRandomNumber(account accounts.Account, identifier []byte) ([]byte, error) {
+	return nil, errors.New("not supported yet")
 }
 
 // SignData signs keccak256(data). The mimetype parameter describes the type of data being signed

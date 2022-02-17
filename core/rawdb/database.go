@@ -285,20 +285,21 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		logged = time.Now()
 
 		// Key-value store statistics
-		headers         stat
-		bodies          stat
-		receipts        stat
-		tds             stat
-		numHashPairings stat
-		hashNumPairings stat
-		tries           stat
-		codes           stat
-		txLookups       stat
-		accountSnaps    stat
-		storageSnaps    stat
-		preimages       stat
-		bloomBits       stat
-		cliqueSnaps     stat
+		headers           stat
+		bodies            stat
+		receipts          stat
+		tds               stat
+		numHashPairings   stat
+		hashNumPairings   stat
+		tries             stat
+		codes             stat
+		txLookups         stat
+		accountSnaps      stat
+		storageSnaps      stat
+		preimages         stat
+		bloomBits         stat
+		cliqueSnaps       stat
+		bouleuterionSnaps stat
 
 		// Ancient store statistics
 		ancientHeadersSize  common.StorageSize
@@ -357,6 +358,8 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			bloomBits.Add(size)
 		case bytes.HasPrefix(key, []byte("clique-")) && len(key) == 7+common.HashLength:
 			cliqueSnaps.Add(size)
+		case bytes.HasPrefix(key, []byte("bouleuterion-")) && len(key) == 7+common.HashLength:
+			bouleuterionSnaps.Add(size)
 		case bytes.HasPrefix(key, []byte("cht-")) ||
 			bytes.HasPrefix(key, []byte("chtIndexV2-")) ||
 			bytes.HasPrefix(key, []byte("chtRootV2-")): // Canonical hash trie
@@ -420,6 +423,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		{"Key-Value store", "Account snapshot", accountSnaps.Size(), accountSnaps.Count()},
 		{"Key-Value store", "Storage snapshot", storageSnaps.Size(), storageSnaps.Count()},
 		{"Key-Value store", "Clique snapshots", cliqueSnaps.Size(), cliqueSnaps.Count()},
+		{"Key-Value store", "Bouleuterion snapshots", bouleuterionSnaps.Size(), bouleuterionSnaps.Count()},
 		{"Key-Value store", "Singleton metadata", metadata.Size(), metadata.Count()},
 		{"Key-Value store", "Shutdown metadata", shutdownInfo.Size(), shutdownInfo.Count()},
 		{"Ancient store", "Headers", ancientHeadersSize.String(), ancients.String()},

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"os"
 	"runtime"
 	"sync"
@@ -546,6 +547,17 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 
 		// Generate the next state snapshot fast without tracing
 		msg, _ := tx.AsMessage(signer)
+
+		if posa, ok := api.backend.Engine().(consensus.PoSA); ok {
+			if isSystem, _ := posa.IsSystemTransaction(tx, block.Header()); isSystem {
+				balance := statedb.GetBalance(consensus.FeePool)
+				if balance.Cmp(common.Big0) > 0 {
+					statedb.SetBalance(consensus.FeePool, big.NewInt(0))
+					statedb.AddBalance(block.Header().Coinbase, balance)
+				}
+			}
+		}
+
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
 		vmenv := vm.NewEVM(blockCtx, core.NewEVMTxContext(msg), statedb, api.backend.ChainConfig(), vm.Config{})
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas())); err != nil {
@@ -818,6 +830,15 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *txTrac
 	}
 	// Run the transaction with tracing enabled.
 	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.backend.ChainConfig(), vm.Config{Debug: true, Tracer: tracer})
+
+	if posa, ok := api.backend.Engine().(consensus.PoSA); ok && message.From() == vmctx.Coinbase &&
+		posa.IsSystemContract(message.To()) && message.GasPrice().Cmp(big.NewInt(0)) == 0 {
+		balance := statedb.GetBalance(consensus.FeePool)
+		if balance.Cmp(common.Big0) > 0 {
+			statedb.SetBalance(consensus.FeePool, big.NewInt(0))
+			statedb.AddBalance(vmctx.Coinbase, balance)
+		}
+	}
 
 	// Call Prepare to clear out the statedb access list
 	statedb.Prepare(txctx.hash, txctx.block, txctx.index)

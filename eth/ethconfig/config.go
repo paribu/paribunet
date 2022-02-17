@@ -27,12 +27,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/bouleuterion"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/gasprice"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
@@ -77,10 +79,11 @@ var Defaults = Config{
 	TrieTimeout:             60 * time.Minute,
 	SnapshotCache:           102,
 	Miner: miner.Config{
-		GasFloor: 8000000,
-		GasCeil:  8000000,
-		GasPrice: big.NewInt(params.GWei),
-		Recommit: 3 * time.Second,
+		GasFloor:       8000000,
+		GasCeil:        8000000,
+		GasPrice:       big.NewInt(params.GWei),
+		Recommit:       3 * time.Second,
+		DelayBroadcast: 50 * time.Millisecond,
 	},
 	TxPool:      core.DefaultTxPoolConfig,
 	RPCGasCap:   25000000,
@@ -166,7 +169,7 @@ type Config struct {
 	Miner miner.Config
 
 	// Ethash options
-	Ethash ethash.Config
+	Ethash ethash.Config `toml:",omitempty"`
 
 	// Transaction pool options
 	TxPool core.TxPoolConfig
@@ -204,10 +207,13 @@ type Config struct {
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *ethash.Config, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *ethash.Config, notify []string, noverify bool, db ethdb.Database, ee *ethapi.PublicBlockChainAPI, genesisHash common.Hash) consensus.Engine {
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
+	}
+	if chainConfig.Bouleuterion != nil {
+		return bouleuterion.New(chainConfig, db, ee, genesisHash)
 	}
 	// Otherwise assume proof-of-work
 	switch config.PowMode {

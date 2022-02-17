@@ -57,6 +57,9 @@ type Oracle struct {
 	cacheLock sync.RWMutex
 	fetchLock sync.Mutex
 
+	defaultPrice      *big.Int
+	samplingThreshold int
+
 	checkBlocks int
 	percentile  int
 }
@@ -84,11 +87,13 @@ func NewOracle(backend OracleBackend, params Config) *Oracle {
 		log.Warn("Sanitizing invalid gasprice oracle price cap", "provided", params.MaxPrice, "updated", maxPrice)
 	}
 	return &Oracle{
-		backend:     backend,
-		lastPrice:   params.Default,
-		maxPrice:    maxPrice,
-		checkBlocks: blocks,
-		percentile:  percent,
+		backend:           backend,
+		lastPrice:         params.Default,
+		maxPrice:          maxPrice,
+		checkBlocks:       blocks,
+		percentile:        percent,
+		defaultPrice:      params.Default,
+		samplingThreshold: 1000,
 	}
 }
 
@@ -116,11 +121,12 @@ func (gpo *Oracle) SuggestPrice(ctx context.Context) (*big.Int, error) {
 		return lastPrice, nil
 	}
 	var (
-		sent, exp int
-		number    = head.Number.Uint64()
-		result    = make(chan getBlockPricesResult, gpo.checkBlocks)
-		quit      = make(chan struct{})
-		txPrices  []*big.Int
+		sent, exp     int
+		number        = head.Number.Uint64()
+		result        = make(chan getBlockPricesResult, gpo.checkBlocks)
+		quit          = make(chan struct{})
+		txPrices      []*big.Int
+		totalSampling int
 	)
 	for sent < gpo.checkBlocks && number > 0 {
 		go gpo.getBlockPrices(ctx, types.MakeSigner(gpo.backend.ChainConfig(), big.NewInt(int64(number))), number, sampleNumber, result, quit)
@@ -141,6 +147,8 @@ func (gpo *Oracle) SuggestPrice(ctx context.Context) (*big.Int, error) {
 		// In these cases, use the latest calculated price for samping.
 		if len(res.prices) == 0 {
 			res.prices = []*big.Int{lastPrice}
+		} else {
+			totalSampling = totalSampling + res.number
 		}
 		// Besides, in order to collect enough data for sampling, if nothing
 		// meaningful returned, try to query more blocks. But the maximum
@@ -154,9 +162,11 @@ func (gpo *Oracle) SuggestPrice(ctx context.Context) (*big.Int, error) {
 		txPrices = append(txPrices, res.prices...)
 	}
 	price := lastPrice
-	if len(txPrices) > 0 {
+	if len(txPrices) > 0 && totalSampling > gpo.samplingThreshold {
 		sort.Sort(bigIntArray(txPrices))
 		price = txPrices[(len(txPrices)-1)*gpo.percentile/100]
+	} else {
+		price = gpo.defaultPrice
 	}
 	if price.Cmp(gpo.maxPrice) > 0 {
 		price = new(big.Int).Set(gpo.maxPrice)
@@ -169,6 +179,7 @@ func (gpo *Oracle) SuggestPrice(ctx context.Context) (*big.Int, error) {
 }
 
 type getBlockPricesResult struct {
+	number int
 	prices []*big.Int
 	err    error
 }
@@ -187,7 +198,7 @@ func (gpo *Oracle) getBlockPrices(ctx context.Context, signer types.Signer, bloc
 	block, err := gpo.backend.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
 	if block == nil {
 		select {
-		case result <- getBlockPricesResult{nil, err}:
+		case result <- getBlockPricesResult{0, nil, err}:
 		case <-quit:
 		}
 		return
@@ -211,7 +222,7 @@ func (gpo *Oracle) getBlockPrices(ctx context.Context, signer types.Signer, bloc
 		}
 	}
 	select {
-	case result <- getBlockPricesResult{prices, nil}:
+	case result <- getBlockPricesResult{len(prices), prices, nil}:
 	case <-quit:
 	}
 }

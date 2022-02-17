@@ -27,6 +27,8 @@ import (
 	mapset "github.com/deckarep/golang-set"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/bouleuterion"
+	"github.com/ethereum/go-ethereum/consensus/bouleuterion/syscontracts"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -55,7 +57,7 @@ const (
 	resubmitAdjustChanSize = 10
 
 	// miningLogAtDepth is the number of confirmations before logging successful mining.
-	miningLogAtDepth = 7
+	miningLogAtDepth = 11
 
 	// minRecommitInterval is the minimal time interval to recreate the mining block with
 	// any newly arrived transactions.
@@ -74,7 +76,7 @@ const (
 	intervalAdjustBias = 200 * 1000.0 * 1000.0
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
-	staleThreshold = 7
+	staleThreshold = 11
 )
 
 // environment is the worker's current environment and holds all of the current state information.
@@ -374,17 +376,32 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 		case <-w.startCh:
 			clearPending(w.chain.CurrentBlock().NumberU64())
 			timestamp = time.Now().Unix()
-			commit(false, commitInterruptNewHead)
+			commit(true, commitInterruptNewHead)
 
 		case head := <-w.chainHeadCh:
+			if !w.isRunning() {
+				continue
+			}
 			clearPending(head.Block.NumberU64())
 			timestamp = time.Now().Unix()
-			commit(false, commitInterruptNewHead)
+			if p, ok := w.engine.(*bouleuterion.Bouleuterion); ok {
+				signedRecent, err := p.SealRecently(w.chain, head.Block.Header())
+				if err != nil {
+					log.Info("Not allowed to propose block", "err", err)
+					continue
+				}
+				if signedRecent {
+					log.Info("Signed recently, must wait")
+					continue
+				}
+			}
+			commit(true, commitInterruptNewHead)
 
 		case <-timer.C:
 			// If mining is running resubmit a new work cycle periodically to pull in
 			// higher priced transactions. Disable this overhead for pending blocks.
-			if w.isRunning() && (w.chainConfig.Clique == nil || w.chainConfig.Clique.Period > 0) {
+			if w.isRunning() && ((w.chainConfig.Ethash != nil) || (w.chainConfig.Clique != nil &&
+				w.chainConfig.Clique.Period > 0) || (w.chainConfig.Bouleuterion != nil && w.chainConfig.Bouleuterion.Period > 0)) {
 				// Short circuit if no new transaction arrives.
 				if atomic.LoadInt32(&w.newTxs) == 0 {
 					timer.Reset(recommit)
@@ -441,6 +458,9 @@ func (w *worker) mainLoop() {
 			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
 
 		case ev := <-w.chainSideCh:
+			if _, ok := w.engine.(*bouleuterion.Bouleuterion); ok {
+				continue
+			}
 			// Short circuit for duplicate side blocks
 			if _, exist := w.localUncles[ev.Block.Hash()]; exist {
 				continue
@@ -755,10 +775,19 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 
 	if w.current.gasPool == nil {
 		w.current.gasPool = new(core.GasPool).AddGas(w.current.header.GasLimit)
+		w.current.gasPool.SubGas(params.SysTxsGas)
 	}
 
 	var coalescedLogs []*types.Log
 
+	var stopTimer *time.Timer
+	delay := w.engine.Delay(w.chain, w.current.header)
+	if delay != nil {
+		stopTimer = time.NewTimer(*delay - w.config.DelayBroadcast)
+		log.Debug("Time left for mining work", "left", (*delay - w.config.DelayBroadcast).String(), "leftover", w.config.DelayBroadcast)
+		defer stopTimer.Stop()
+	}
+LOOP:
 	for {
 		// In the following three cases, we will interrupt the execution of the transaction.
 		// (1) new head block event arrival, the interrupt signal is 1
@@ -784,6 +813,14 @@ func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, coin
 		if w.current.gasPool.Gas() < params.TxGas {
 			log.Trace("Not enough gas for further transactions", "have", w.current.gasPool, "want", params.TxGas)
 			break
+		}
+		if stopTimer != nil {
+			select {
+			case <-stopTimer.C:
+				log.Info("Not enough time for further transactions", "txs", len(w.current.txs))
+				break LOOP
+			default:
+			}
 		}
 		// Retrieve the next transaction and abort if all done
 		tx := txs.Peek()
@@ -920,6 +957,7 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	if w.chainConfig.DAOForkSupport && w.chainConfig.DAOForkBlock != nil && w.chainConfig.DAOForkBlock.Cmp(header.Number) == 0 {
 		misc.ApplyDAOHardFork(env.state)
 	}
+	syscontracts.ForkForSystemContracts(w.chainConfig, header.Number, env.state)
 	// Accumulate the uncles for the current block
 	uncles := make([]*types.Header, 0, 2)
 	commitUncles := func(blocks map[common.Hash]*types.Block) {
@@ -955,34 +993,30 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 	pending, err := w.eth.TxPool().Pending()
 	if err != nil {
 		log.Error("Failed to fetch pending transactions", "err", err)
-		return
 	}
-	// Short circuit if there is no available pending transactions.
-	// But if we disable empty precommit already, ignore it. Since
-	// empty block is necessary to keep the liveness of the network.
-	if len(pending) == 0 && atomic.LoadUint32(&w.noempty) == 0 {
-		w.updateSnapshot()
-		return
-	}
-	// Split the pending transactions into locals and remotes
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range w.eth.TxPool().Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
+	// Short circuit if there is no available pending transactions
+	if len(pending) != 0 {
+		// Split the pending transactions into locals and remotes
+		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+		for _, account := range w.eth.TxPool().Locals() {
+			if txs := remoteTxs[account]; len(txs) > 0 {
+				delete(remoteTxs, account)
+				localTxs[account] = txs
+			}
 		}
-	}
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
-		if w.commitTransactions(txs, w.coinbase, interrupt) {
-			return
+		if len(localTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
+			if w.commitTransactions(txs, w.coinbase, interrupt) {
+				return
+			}
 		}
-	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
-		if w.commitTransactions(txs, w.coinbase, interrupt) {
-			return
+		if len(remoteTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
+			if w.commitTransactions(txs, w.coinbase, interrupt) {
+				return
+			}
 		}
+		log.Info("Gas pool", "height", header.Number.String(), "pool", w.current.gasPool.String())
 	}
 	w.commit(uncles, w.fullTaskHook, true, tstart)
 }
@@ -993,7 +1027,7 @@ func (w *worker) commit(uncles []*types.Header, interval func(), update bool, st
 	// Deep copy receipts here to avoid interaction between different tasks.
 	receipts := copyReceipts(w.current.receipts)
 	s := w.current.state.Copy()
-	block, err := w.engine.FinalizeAndAssemble(w.chain, w.current.header, s, w.current.txs, uncles, receipts)
+	block, receipts, err := w.engine.FinalizeAndAssemble(w.chain, types.CopyHeader(w.current.header), s, w.current.txs, uncles, w.current.receipts)
 	if err != nil {
 		return err
 	}

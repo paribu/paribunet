@@ -125,6 +125,25 @@ func (w *keystoreWallet) SignTextWithPassphrase(account accounts.Account, passph
 	return w.keystore.SignHashWithPassphrase(account, passphrase, accounts.TextHash(text))
 }
 
+func (w *keystoreWallet) SecureRandomNumber(account accounts.Account, identifier []byte) ([]byte, error) {
+	ks := w.keystore
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+	unlockedKey, found := ks.unlocked[account.Address]
+	if !found {
+		return nil, ErrLocked
+	}
+	key := unlockedKey.PrivateKey.D.Bytes()
+	ephemeralKey := crypto.Keccak256(key, identifier)
+	result := crypto.Keccak256(ephemeralKey, identifier)
+	//make zero
+	for i := range key {
+		key[i] = 0
+		ephemeralKey[i] = 0
+	}
+	return result, nil
+}
+
 // SignTx implements accounts.Wallet, attempting to sign the given transaction
 // with the given account. If the wallet does not wrap this particular account,
 // an error is returned to avoid account leakage (even though in theory we may

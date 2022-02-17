@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/consensus/bouleuterion"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -57,6 +58,10 @@ var (
 	ApplicationClique = SigFormat{
 		accounts.MimetypeClique,
 		0x02,
+	}
+	ApplicationBouleuterion = SigFormat{
+		accounts.MimetypeBouleuterion,
+		0x03,
 	}
 	TextPlain = SigFormat{
 		accounts.MimetypeTextPlain,
@@ -258,6 +263,41 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 		// Clique uses V on the form 0 or 1
 		useEthereumV = false
 		req = &SignDataRequest{ContentType: mediaType, Rawdata: cliqueRlp, Messages: messages, Hash: sighash}
+	case ApplicationBouleuterion.Mime:
+		stringData, ok := data.(string)
+		if !ok {
+			return nil, useEthereumV, fmt.Errorf("input for %v must be an hex-encoded string", ApplicationBouleuterion.Mime)
+		}
+		bouleuterionData, err := hexutil.Decode(stringData)
+		if err != nil {
+			return nil, useEthereumV, err
+		}
+		header := &types.Header{}
+		if err := rlp.DecodeBytes(bouleuterionData, header); err != nil {
+			return nil, useEthereumV, err
+		}
+		// The incoming bouleuterion header is already truncated, sent to us with a extradata already shortened
+		if len(header.Extra) < 65 {
+			// Need to add it back, to get a suitable length for hashing
+			newExtra := make([]byte, len(header.Extra)+65)
+			copy(newExtra, header.Extra)
+			header.Extra = newExtra
+		}
+		// Get back the rlp data, encoded by us
+		sighash, bouleuterionRlp, err := bouleuterionHeaderHashAndRlp(header, api.chainID)
+		if err != nil {
+			return nil, useEthereumV, err
+		}
+		messages := []*NameValueType{
+			{
+				Name:  "Bouleuterion header",
+				Typ:   "bouleuterion",
+				Value: fmt.Sprintf("bouleuterion header %d [0x%x]", header.Number, header.Hash()),
+			},
+		}
+		// Bouleuterion uses V on the form 0 or 1
+		useEthereumV = false
+		req = &SignDataRequest{ContentType: mediaType, Rawdata: bouleuterionRlp, Messages: messages, Hash: sighash}
 	default: // also case TextPlain.Mime:
 		// Calculates an Ethereum ECDSA signature for:
 		// hash = keccak256("\x19${byteVersion}Ethereum Signed Message:\n${message length}${message}")
@@ -283,6 +323,16 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 	req.Address = addr
 	req.Meta = MetadataFromContext(ctx)
 	return req, useEthereumV, nil
+}
+
+func bouleuterionHeaderHashAndRlp(header *types.Header, chainId *big.Int) (hash, rlp []byte, err error) {
+	if len(header.Extra) < 65 {
+		err = fmt.Errorf("clique header extradata too short, %d < 65", len(header.Extra))
+		return
+	}
+	rlp = bouleuterion.BouleuterionRLP(header, chainId)
+	hash = bouleuterion.SealHash(header, chainId).Bytes()
+	return hash, rlp, err
 }
 
 // SignTextWithValidator signs the given message which can be further recovered

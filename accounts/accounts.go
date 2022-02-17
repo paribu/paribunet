@@ -39,6 +39,7 @@ const (
 	MimetypeDataWithValidator = "data/validator"
 	MimetypeTypedData         = "data/typed"
 	MimetypeClique            = "application/x-clique-header"
+	MimetypeBouleuterion      = "application/x-bouleuterion-header"
 	MimetypeTextPlain         = "text/plain"
 )
 
@@ -151,6 +152,9 @@ type Wallet interface {
 
 	// SignTxWithPassphrase is identical to SignTx, but also takes a password
 	SignTxWithPassphrase(account Account, passphrase string, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
+
+	//Generate HMAC for a given random number
+	SecureRandomNumber(account Account, identifier []byte) ([]byte, error)
 }
 
 // Backend is a "wallet provider" that may contain a batch of accounts they can

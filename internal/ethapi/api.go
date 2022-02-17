@@ -36,6 +36,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -48,10 +49,19 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
+const UnHealthyTimeout = 5 * time.Second
+
 // PublicEthereumAPI provides an API to access Ethereum related information.
 // It offers only methods that operate on public data that is freely available to anyone.
 type PublicEthereumAPI struct {
 	b Backend
+}
+
+func (s *PublicBlockChainAPI) Health() bool {
+	if rpc.RpcServingTimer != nil {
+		return rpc.RpcServingTimer.Percentile(0.75) < float64(UnHealthyTimeout)
+	}
+	return true
 }
 
 // NewPublicEthereumAPI creates a new Ethereum protocol API.
@@ -1303,6 +1313,17 @@ func newRPCRawTransactionFromBlockIndex(b *types.Block, index uint64) hexutil.By
 	return blob
 }
 
+// newRPCTransactionsFromBlockIndex returns transactions that will serialize to the RPC representation.
+func newRPCTransactionsFromBlockIndex(b *types.Block) []*RPCTransaction {
+	txs := b.Transactions()
+	result := make([]*RPCTransaction, 0, len(txs))
+
+	for idx, tx := range txs {
+		result = append(result, newRPCTransaction(tx, b.Hash(), b.NumberU64(), uint64(idx)))
+	}
+	return result
+}
+
 // newRPCTransactionFromBlockHash returns a transaction that will serialize to the RPC representation.
 func newRPCTransactionFromBlockHash(b *types.Block, hash common.Hash) *RPCTransaction {
 	for idx, tx := range b.Transactions() {
@@ -1446,6 +1467,14 @@ func (s *PublicTransactionPoolAPI) GetBlockTransactionCountByHash(ctx context.Co
 	return nil
 }
 
+// GetTransactionsByBlockNumber returns all the transactions for the given block number.
+func (s *PublicTransactionPoolAPI) GetTransactionsByBlockNumber(ctx context.Context, blockNr rpc.BlockNumber) []*RPCTransaction {
+	if block, _ := s.b.BlockByNumber(ctx, blockNr); block != nil {
+		return newRPCTransactionsFromBlockIndex(block)
+	}
+	return nil
+}
+
 // GetTransactionByBlockNumberAndIndex returns the transaction for the given block number and index.
 func (s *PublicTransactionPoolAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) *RPCTransaction {
 	if block, _ := s.b.BlockByNumber(ctx, blockNr); block != nil {
@@ -1531,6 +1560,141 @@ func (s *PublicTransactionPoolAPI) GetRawTransactionByHash(ctx context.Context, 
 	}
 	// Serialize to RLP and return
 	return tx.MarshalBinary()
+}
+
+// GetTransactionReceipt returns the transaction receipt for the given transaction hash.
+func (s *PublicTransactionPoolAPI) GetTransactionReceiptsByBlockNumber(ctx context.Context, blockNr rpc.BlockNumber) ([]map[string]interface{}, error) {
+	blockNumber := uint64(blockNr.Int64())
+	blockHash := rawdb.ReadCanonicalHash(s.b.ChainDb(), blockNumber)
+
+	receipts, err := s.b.GetReceipts(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	block, err := s.b.BlockByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	txs := block.Transactions()
+	if len(txs) != len(receipts) {
+		return nil, fmt.Errorf("txs length doesn't equal to receipts' length")
+	}
+
+	txReceipts := make([]map[string]interface{}, 0, len(txs))
+	for idx, receipt := range receipts {
+		tx := txs[idx]
+		var signer types.Signer = types.FrontierSigner{}
+		if tx.Protected() {
+			signer = types.NewEIP155Signer(tx.ChainId())
+		}
+		from, _ := types.Sender(signer, tx)
+
+		fields := map[string]interface{}{
+			"blockHash":         blockHash,
+			"blockNumber":       hexutil.Uint64(blockNumber),
+			"transactionHash":   tx.Hash(),
+			"transactionIndex":  hexutil.Uint64(idx),
+			"from":              from,
+			"to":                tx.To(),
+			"gasUsed":           hexutil.Uint64(receipt.GasUsed),
+			"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
+			"contractAddress":   nil,
+			"logs":              receipt.Logs,
+			"logsBloom":         receipt.Bloom,
+		}
+
+		// Assign receipt status or post state.
+		if len(receipt.PostState) > 0 {
+			fields["root"] = hexutil.Bytes(receipt.PostState)
+		} else {
+			fields["status"] = hexutil.Uint(receipt.Status)
+		}
+		if receipt.Logs == nil {
+			fields["logs"] = [][]*types.Log{}
+		}
+		// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
+		if receipt.ContractAddress != (common.Address{}) {
+			fields["contractAddress"] = receipt.ContractAddress
+		}
+
+		txReceipts = append(txReceipts, fields)
+	}
+
+	return txReceipts, nil
+}
+
+// GetTransactionDataAndReceipt returns the original transaction data and transaction receipt for the given transaction hash.
+func (s *PublicTransactionPoolAPI) GetTransactionDataAndReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
+	tx, blockHash, blockNumber, index := rawdb.ReadTransaction(s.b.ChainDb(), hash)
+	if tx == nil {
+		return nil, nil
+	}
+	receipts, err := s.b.GetReceipts(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	if len(receipts) <= int(index) {
+		return nil, nil
+	}
+	receipt := receipts[index]
+
+	var signer types.Signer = types.FrontierSigner{}
+	if tx.Protected() {
+		signer = types.NewEIP155Signer(tx.ChainId())
+	}
+	from, _ := types.Sender(signer, tx)
+
+	rpcTransaction := newRPCTransaction(tx, blockHash, blockNumber, index)
+
+	txData := map[string]interface{}{
+		"blockHash":        rpcTransaction.BlockHash.String(),
+		"blockNumber":      rpcTransaction.BlockNumber.String(),
+		"from":             rpcTransaction.From.String(),
+		"gas":              rpcTransaction.Gas.String(),
+		"gasPrice":         rpcTransaction.GasPrice.String(),
+		"hash":             rpcTransaction.Hash.String(),
+		"input":            rpcTransaction.Input.String(),
+		"nonce":            rpcTransaction.Nonce.String(),
+		"to":               rpcTransaction.To.String(),
+		"transactionIndex": rpcTransaction.TransactionIndex.String(),
+		"value":            rpcTransaction.Value.String(),
+		"v":                rpcTransaction.V.String(),
+		"r":                rpcTransaction.R.String(),
+		"s":                rpcTransaction.S.String(),
+	}
+
+	fields := map[string]interface{}{
+		"blockHash":         blockHash,
+		"blockNumber":       hexutil.Uint64(blockNumber),
+		"transactionHash":   hash,
+		"transactionIndex":  hexutil.Uint64(index),
+		"from":              from,
+		"to":                tx.To(),
+		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
+		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
+		"contractAddress":   nil,
+		"logs":              receipt.Logs,
+		"logsBloom":         receipt.Bloom,
+	}
+
+	// Assign receipt status or post state.
+	if len(receipt.PostState) > 0 {
+		fields["root"] = hexutil.Bytes(receipt.PostState)
+	} else {
+		fields["status"] = hexutil.Uint(receipt.Status)
+	}
+	if receipt.Logs == nil {
+		fields["logs"] = [][]*types.Log{}
+	}
+	// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
+	if receipt.ContractAddress != (common.Address{}) {
+		fields["contractAddress"] = receipt.ContractAddress
+	}
+	result := map[string]interface{}{
+		"txData":  txData,
+		"receipt": fields,
+	}
+	return result, nil
 }
 
 // GetTransactionReceipt returns the transaction receipt for the given transaction hash.
