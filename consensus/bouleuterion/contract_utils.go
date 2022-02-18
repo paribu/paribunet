@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"math/big"
 	"sort"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/params"
 
@@ -57,7 +59,16 @@ func (b *Bouleuterion) initSystemContracts(state *state.StateDB, header *types.H
 		if c == syscontracts.GovernanceContractAddr {
 			msg = b.getSystemMessage(header.Coinbase, c, governanceData, common.Big0)
 		} else if c == syscontracts.ValidatorSetContractAddr {
-			msg = b.getSystemMessage(header.Coinbase, c, validatorSetData, common.Big0)
+			msg = callmsg{
+				ethereum.CallMsg{
+					From:     header.Coinbase,
+					Gas:      math.MaxUint64 / 2,
+					GasPrice: big.NewInt(0),
+					Value:    common.Big0,
+					To:       &c,
+					Data:     validatorSetData,
+				},
+			}
 		}
 		log.Info("initialize contract", "block hash", header.Hash(), "contract", c)
 		err = b.applyTransaction(msg, state, header, chain, txs, receipts, receivedTxs, usedGas, mining)
@@ -68,16 +79,16 @@ func (b *Bouleuterion) initSystemContracts(state *state.StateDB, header *types.H
 	return nil
 }
 
-func (b *Bouleuterion) getEpochInfo(blockHash common.Hash) ([]common.Address, error) {
+func (b *Bouleuterion) getValidatorSet(blockHash common.Hash) ([]common.Address, error) {
 	blockNr := rpc.BlockNumberOrHashWithHash(blockHash, false)
-	method := "getEpochInfo"
+	method := "getValidatorSet"
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	data, err := b.abiMap[syscontracts.ValidatorSetContractName].Pack(method)
 	if err != nil {
-		log.Error("Unable to pack tx for getEpochInfo", "error", err)
+		log.Error("Unable to pack tx for getValidatorSet", "error", err)
 		return nil, err
 	}
 

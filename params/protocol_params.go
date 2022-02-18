@@ -31,7 +31,7 @@ const (
 	CallNewAccountGas    uint64 = 25000 // Paid for CALL when the destination address didn't exist prior.
 	TxGas                uint64 = 21000 // Per transaction not creating a contract. NOTE: Not payable on data of calls between transactions.
 
-	MaxSysTxsGas          uint64 = 10000000 // Max gas reserved for any system transactions; only for bouleuterion consensus
+	MaxSysTxsGas          uint64 = 20000000 // Max gas reserved for any system transactions; only for bouleuterion consensus
 	SysTxsGas             uint64 = 500000   // The gas reserved for system txs; only for bouleuterion consensus
 	TxGasContractCreation uint64 = 53000    // Per transaction that creates a contract. NOTE: Not payable on data of calls between transactions.
 	TxDataZeroGas         uint64 = 4        // Per byte of data attached to a transaction that equals zero. NOTE: Not payable on data of calls between transactions.

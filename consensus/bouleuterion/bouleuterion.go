@@ -455,7 +455,7 @@ func (b *Bouleuterion) Prepare(chain consensus.ChainHeaderReader, header *types.
 
 	//Check if current block is the epoch block. If yes, get validators from the contract, sort them and add them in the header.Extra
 	if number%b.config.Epoch == 0 {
-		newValidators, err := b.getEpochInfo(header.ParentHash)
+		newValidators, err := b.getValidatorSet(header.ParentHash)
 		if err != nil {
 			return err
 		}
@@ -500,7 +500,7 @@ func (b *Bouleuterion) Finalize(chain consensus.ChainHeaderReader, header *types
 	// If the block is a epoch end block, verify the validator list
 	// The verification can only be done when the state is ready, it can't be done in VerifyHeader.
 	if header.Number.Uint64()%b.config.Epoch == 0 {
-		newValidators, err := b.getEpochInfo(header.ParentHash)
+		newValidators, err := b.getValidatorSet(header.ParentHash)
 		if err != nil {
 			return err
 		}
@@ -580,9 +580,9 @@ func (b *Bouleuterion) FinalizeAndAssemble(chain consensus.ChainHeaderReader, he
 		receipts = make([]*types.Receipt, 0)
 	}
 	if header.Number.Uint64()%b.config.Epoch == 0 {
-		_, err := b.getEpochInfo(header.ParentHash)
+		_, err := b.getValidatorSet(header.ParentHash)
 		if err != nil {
-			log.Error("get epoch info failed", "error", err)
+			log.Error("get validator set failed", "error", err)
 		}
 	}
 	//Check if current block is the genesis block, init contracts.
