@@ -31,13 +31,14 @@ const (
 	CallNewAccountGas    uint64 = 25000 // Paid for CALL when the destination address didn't exist prior.
 	TxGas                uint64 = 21000 // Per transaction not creating a contract. NOTE: Not payable on data of calls between transactions.
 
-	MaxSysTxsGas          uint64 = 20000000 // Max gas reserved for any system transactions; only for bouleuterion consensus
-	SysTxsGas             uint64 = 500000   // The gas reserved for system txs; only for bouleuterion consensus
-	TxGasContractCreation uint64 = 53000    // Per transaction that creates a contract. NOTE: Not payable on data of calls between transactions.
-	TxDataZeroGas         uint64 = 4        // Per byte of data attached to a transaction that equals zero. NOTE: Not payable on data of calls between transactions.
-	QuadCoeffDiv          uint64 = 512      // Divisor for the quadratic particle of the memory cost equation.
-	LogDataGas            uint64 = 8        // Per byte in a LOG* operation's data.
-	CallStipend           uint64 = 2300     // Free gas given at beginning of call.
+	MaxSysTxsGas uint64 = 20000000 // Max gas reserved for any system transactions; for bouleuterion consensus
+	SysTxsGas    uint64 = 10000000 // Gas reserved for system transactions; for bouleuterion
+
+	TxGasContractCreation uint64 = 53000 // Per transaction that creates a contract. NOTE: Not payable on data of calls between transactions.
+	TxDataZeroGas         uint64 = 4     // Per byte of data attached to a transaction that equals zero. NOTE: Not payable on data of calls between transactions.
+	QuadCoeffDiv          uint64 = 512   // Divisor for the quadratic particle of the memory cost equation.
+	LogDataGas            uint64 = 8     // Per byte in a LOG* operation's data.
+	CallStipend           uint64 = 2300  // Free gas given at beginning of call.
 
 	Sha3Gas     uint64 = 30 // Once per SHA3 operation.
 	Sha3WordGas uint64 = 6  // Once per word of the SHA3 operation's data.
