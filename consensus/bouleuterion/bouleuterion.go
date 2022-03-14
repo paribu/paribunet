@@ -515,7 +515,7 @@ func (b *Bouleuterion) Finalize(chain consensus.ChainHeaderReader, header *types
 			return errMismatchingEpochValidators
 		}
 	}
-	// No block rewards in PoA, so the state remains as is and uncles are dropped
+
 	if header.Number.Cmp(common.Big1) == 0 {
 		err := b.initSystemContracts(state, header, cx, txs, receipts, systemTxs, usedGas, false)
 		if err != nil {
@@ -531,7 +531,8 @@ func (b *Bouleuterion) Finalize(chain consensus.ChainHeaderReader, header *types
 	}
 
 	val := header.Coinbase
-	//check and verify tx
+
+	//check and verify system txs
 	tx := make([]*types.Transaction, len(*systemTxs))
 	copy(tx, *systemTxs)
 	for i := 0; i < len(tx) && len(*systemTxs) > 0; i++ {
@@ -624,7 +625,6 @@ func (b *Bouleuterion) FinalizeAndAssemble(chain consensus.ChainHeaderReader, he
 		}
 	}
 
-	// should not happen. Once happen, stop the node is better than broadcast the block
 	if header.GasLimit < header.GasUsed {
 		return nil, nil, errors.New("gas consumption of system txs exceed the gas limit")
 	}
@@ -659,8 +659,7 @@ func (b *Bouleuterion) Seal(chain consensus.ChainHeaderReader, block *types.Bloc
 	}
 	// For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
 	if b.config.Period == 0 && len(block.Transactions()) == 0 {
-		log.Info("Sealing paused, waiting for transactions")
-		return nil
+		return errors.New("sealing paused while waiting for transactions")
 	}
 	// Don't hold the val fields for the entire sealing procedure
 	b.lock.RLock()
@@ -761,7 +760,7 @@ func (b *Bouleuterion) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 func SealHash(header *types.Header, chainId *big.Int) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
 	encodeSigHeader(hasher, header, chainId)
-	hasher.Sum(hash[:0])
+	hasher.(crypto.KeccakState).Read(hash[:])
 	return hash
 }
 
