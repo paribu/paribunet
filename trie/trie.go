@@ -197,10 +197,6 @@ func (t *Trie) tryGetNode(origNode node, path []byte, pos int) (item []byte, new
 	}
 	// Path still needs to be traversed, descend into children
 	switch n := (origNode).(type) {
-	case nil:
-		// Non-existent path requested, abort
-		return nil, nil, 0, nil
-
 	case valueNode:
 		// Path prematurely ended, abort
 		return nil, nil, 0, nil
