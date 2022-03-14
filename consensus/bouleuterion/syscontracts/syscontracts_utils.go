@@ -32,10 +32,6 @@ const (
 	testnet = "Testnet"
 )
 
-var (
-	xFork = make(map[string]*Fork)
-)
-
 type Fork struct {
 	Name        string
 	ForkConfigs []*ForkConfig
@@ -61,34 +57,4 @@ func init() {
 	AbiMap[RandaoContractName] = tmpABI
 	tmpABI, _ = abi.JSON(strings.NewReader(GovernanceABI))
 	AbiMap[GovernanceContractName] = tmpABI
-
-	xFork[testnet] = &Fork{
-		Name: "x",
-		ForkConfigs: []*ForkConfig{
-			{
-				SysContractAddr: ValidatorSetContractAddr,
-				ContractCode:    "",
-			},
-			{
-				SysContractAddr: SlashingContractAddr,
-				ContractCode:    "",
-			},
-			{
-				SysContractAddr: RandaoContractAddr,
-				ContractCode:    "",
-			},
-			{
-				SysContractAddr: StakingContractAddr,
-				ContractCode:    "",
-			},
-			{
-				SysContractAddr: GovernanceContractAddr,
-				ContractCode:    "",
-			},
-			{
-				SysContractAddr: RewardPoolContractAddr,
-				ContractCode:    "",
-			},
-		},
-	}
 }

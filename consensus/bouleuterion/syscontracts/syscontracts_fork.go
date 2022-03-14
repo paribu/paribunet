@@ -14,18 +14,14 @@ func ForkForSystemContracts(config *params.ChainConfig, blockNumber *big.Int, st
 	if config == nil || blockNumber == nil || statedb == nil {
 		return
 	}
-
-	var network string
-	switch GenesisHash {
-	case params.ParibuNetMainnetGenesisHash:
-		network = mainnet
-	case params.ParibuNetTestnetGenesisHash:
-		network = testnet
-	}
-
-	if config.IsOnX(blockNumber) {
-		doForkForSystemContract(xFork[network], blockNumber, statedb, network)
-	}
+	/*
+		var network string
+		switch GenesisHash {
+		case params.ParibuNetMainnetGenesisHash:
+			network = mainnet
+		case params.ParibuNetTestnetGenesisHash:
+			network = testnet
+		}*/
 }
 
 func doForkForSystemContract(upgrade *Fork, blockNumber *big.Int, statedb *state.StateDB, network string) {
