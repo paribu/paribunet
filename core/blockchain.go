@@ -403,6 +403,21 @@ func (bc *BlockChain) GetVMConfig() *vm.Config {
 	return &bc.vmConfig
 }
 
+func (bc *BlockChain) cacheReceipts(hash common.Hash, receipts types.Receipts) {
+	const maxSystemReceipts = 4
+	numOfReceipts := len(receipts)
+	for i := numOfReceipts - 1; i >= 0 && i >= numOfReceipts-maxSystemReceipts; i-- {
+		for j := 0; j < len(receipts[i].Logs); j++ {
+			receipts[i].Logs[j].BlockHash = hash
+		}
+	}
+	bc.receiptsCache.Add(hash, receipts)
+}
+
+func (bc *BlockChain) cacheBlock(hash common.Hash, block *types.Block) {
+	bc.blockCache.Add(hash, block)
+}
+
 func (bc *BlockChain) CacheReceipts(hash common.Hash, receipts types.Receipts) {
 	bc.receiptsCache.Add(hash, receipts)
 }
@@ -1879,7 +1894,6 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 			atomic.StoreUint32(&followupInterrupt, 1)
 			return it.index, err
 		}
-		bc.CacheReceipts(block.Hash(), receipts)
 		// Update the metrics touched during block processing
 		accountReadTimer.Update(statedb.AccountReads)                 // Account reads are complete, we can mark them
 		storageReadTimer.Update(statedb.StorageReads)                 // Storage reads are complete, we can mark them
@@ -1900,6 +1914,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 			atomic.StoreUint32(&followupInterrupt, 1)
 			return it.index, err
 		}
+		bc.cacheReceipts(block.Hash(), receipts)
+		bc.cacheBlock(block.Hash(), block)
 		proctime := time.Since(start)
 
 		// Update the metrics touched during block validation
