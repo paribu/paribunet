@@ -37,10 +37,13 @@ const (
 type SignerTxFn func(accounts.Account, *types.Transaction, *big.Int) (*types.Transaction, error)
 type SecureRandomNumber func(account accounts.Account, identifier []byte) ([]byte, error)
 
-func (b *Bouleuterion) genNewSeedId() []byte {
+func (b *Bouleuterion) genNewSeedId() ([]byte, error) {
 	newCipher := make([]byte, 32)
-	rand.Read(newCipher)
-	return newCipher
+	_, err := rand.Read(newCipher)
+	if err != nil {
+		return nil, err
+	}
+	return newCipher, nil
 }
 
 func (b *Bouleuterion) getCommit(newSecureSeed []byte) []byte {

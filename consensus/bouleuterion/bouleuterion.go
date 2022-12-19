@@ -758,7 +758,10 @@ func (b *Bouleuterion) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 func SealHash(header *types.Header, chainId *big.Int) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
 	encodeSigHeader(hasher, header, chainId)
-	hasher.(crypto.KeccakState).Read(hash[:])
+	_, err := hasher.(crypto.KeccakState).Read(hash[:])
+	if err != nil {
+		log.Error("can't read hash", err.Error())
+	}
 	return hash
 }
 

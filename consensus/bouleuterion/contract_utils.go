@@ -207,7 +207,10 @@ func (b *Bouleuterion) tryGenSecureRandom(header *types.Header, state *state.Sta
 			return errors.New("cannot match revealSeed")
 		}
 	}
-	newSeedId := b.genNewSeedId()
+	newSeedId, err := b.genNewSeedId()
+	if err != nil {
+		return err
+	}
 	newSecureSeed, _ := b.secureRandomNumber(accounts.Account{Address: b.val}, newSeedId)
 	newCommit := b.getCommit(newSecureSeed)
 
