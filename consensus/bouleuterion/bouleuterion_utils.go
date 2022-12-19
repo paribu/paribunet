@@ -2,10 +2,11 @@ package bouleuterion
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
-	"math/rand"
+	mathrand "math/rand"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -122,7 +123,7 @@ func (b *Bouleuterion) delay(snap *Snapshot, header *types.Header) time.Duration
 	delay := time.Until(time.Unix(int64(header.Time), 0))
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
 		wiggle := time.Duration(len(snap.Validators)/2+1) * wiggleTime
-		delay += backOffTime + time.Duration(rand.Int63n(int64(wiggle)))
+		delay += backOffTime + time.Duration(mathrand.Int63n(int64(wiggle)))
 	}
 	return delay
 }
