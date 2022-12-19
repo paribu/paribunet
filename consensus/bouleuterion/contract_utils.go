@@ -55,7 +55,7 @@ func (b *Bouleuterion) initSystemContracts(state *state.StateDB, header *types.H
 		return err
 	}
 	var msg callmsg
-	for _, c := range contracts {
+	for i, c := range contracts {
 		if c == syscontracts.GovernanceContractAddr {
 			msg = b.getSystemMessage(header.Coinbase, c, governanceData, common.Big0)
 		} else if c == syscontracts.ValidatorSetContractAddr {
@@ -65,7 +65,7 @@ func (b *Bouleuterion) initSystemContracts(state *state.StateDB, header *types.H
 					Gas:      math.MaxUint64 / 2,
 					GasPrice: big.NewInt(0),
 					Value:    common.Big0,
-					To:       &c,
+					To:       &contracts[i],
 					Data:     validatorSetData,
 				},
 			}
