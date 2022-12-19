@@ -314,7 +314,7 @@ func FindAncientHeader(header *types.Header, ite uint64, chain consensus.ChainHe
 			ancient = chain.GetHeader(parentHash, parentHeight)
 			found = true
 		}
-		if ancient == nil || !found {
+		if ancient == nil {
 			return nil
 		}
 	}
