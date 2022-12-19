@@ -535,26 +535,24 @@ func (b *Bouleuterion) Finalize(chain consensus.ChainHeaderReader, header *types
 	//check and verify system txs
 	tx := make([]*types.Transaction, len(*systemTxs))
 	copy(tx, *systemTxs)
-	for i := 0; i < len(tx) && len(*systemTxs) > 0; i++ {
-		switch *tx[i].To() {
-		case syscontracts.RandaoContractAddr:
-			from, _ := types.Sender(b.signer, tx[i])
-			msg := b.getSystemMessage(from, *tx[i].To(), tx[i].Data(), common.Big0)
-			err = b.applyTransaction(msg, state, header, cx, txs, receipts, systemTxs, usedGas, false)
-			if err != nil {
-				return err
-			}
-		case syscontracts.ValidatorSetContractAddr:
-			err = b.tryDistributeToSystem(val, state, header, cx, txs, receipts, systemTxs, usedGas, false)
-			if err != nil {
-				return err
-			}
-			if header.Number.Uint64()%b.config.Epoch == 0 {
-				err = b.epochCall(header, state, cx, txs, receipts, systemTxs, usedGas, false)
-				if err != nil {
-					return err
-				}
-			}
+
+	if *tx[0].To() == syscontracts.RandaoContractAddr {
+		from, _ := types.Sender(b.signer, tx[0])
+		msg := b.getSystemMessage(from, *tx[0].To(), tx[0].Data(), common.Big0)
+		err = b.applyTransaction(msg, state, header, cx, txs, receipts, systemTxs, usedGas, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = b.tryDistributeToSystem(val, state, header, cx, txs, receipts, systemTxs, usedGas, false)
+	if err != nil {
+		return err
+	}
+	if header.Number.Uint64()%b.config.Epoch == 0 {
+		err = b.epochCall(header, state, cx, txs, receipts, systemTxs, usedGas, false)
+		if err != nil {
+			return err
 		}
 	}
 
